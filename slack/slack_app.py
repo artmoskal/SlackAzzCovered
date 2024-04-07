@@ -92,8 +92,9 @@ class SlackApp:
                 previous_context = self.vector_db_helper.get_relevant_message_groups(channel_id, message_txt, distance=0.7)
                 previous_context_merged = [f"{message_group.properties['text']} \n-------\n" for message_group in previous_context.objects]
                 response = self.llm_caller.get_gpt_response(message_txt, last_messages_history, previous_context_merged)
+                logging.debug(previous_context)
                 ic(response)
-
+                say(response.json())
 
                 self.add_messages(clean_messages, channel_id)
                 mes = clean_messages[0]

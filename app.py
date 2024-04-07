@@ -12,7 +12,7 @@ import weaviate
 load_dotenv()
 
 # Setup logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 GPT_API_TOKEN = os.environ.get("GPT_API_TOKEN")
