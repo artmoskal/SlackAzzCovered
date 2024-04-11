@@ -152,6 +152,8 @@ class VectorDBHelper:
                     wvc.config.Property(name="ref_count", data_type=wvc.config.DataType.INT, skip_vectorization=True),
                     wvc.config.Property(name="channel_id", data_type=wvc.config.DataType.TEXT, skip_vectorization=True),
                     wvc.config.Property(name="user_id", data_type=wvc.config.DataType.TEXT, skip_vectorization=True),
+                    wvc.config.Property(name="user_name", data_type=wvc.config.DataType.TEXT, skip_vectorization=True),
+                    wvc.config.Property(name="role", data_type=wvc.config.DataType.TEXT, skip_vectorization=True),
                     wvc.config.Property(name="ts", data_type=wvc.config.DataType.DATE, skip_vectorization=True),
                     wvc.config.Property(name="thread_ts", data_type=wvc.config.DataType.DATE, skip_vectorization=True),
                 ],
@@ -172,7 +174,7 @@ class VectorDBHelper:
         """Simple tokenizer to count words in a text."""
         return len(re.findall(r'\w+', text))
 
-    def _group_messages(self, ungrouped_messages, max_tokens=100, max_days=3):
+    def _group_messages(self, ungrouped_messages, max_tokens=200, max_days=3):
         formed_groups = []
 
         current_group, current_tokens, last_ts = [], 0, None
@@ -182,7 +184,7 @@ class VectorDBHelper:
             message_tokens = self.tokenize(message['text'])
             current_ts = message['ts']
 
-            #TODO Add overlap?
+            # TODO Add overlap?
             # Check token count and time gap
             if current_tokens + message_tokens > max_tokens or (last_ts and (current_ts - last_ts).days > max_days):
                 if current_group:
@@ -216,8 +218,8 @@ class VectorDBHelper:
                     }
                 )
                 messages.data.reference_delete(from_uuid=message_uuid,
-                                                                           from_property='hasMessageGroup',
-                                                                           to=group_uuid)
+                                               from_property='hasMessageGroup',
+                                               to=group_uuid)
                 unbound_message_group_ids.append(group_uuid)
         return unbound_message_group_ids
 
@@ -226,18 +228,19 @@ class VectorDBHelper:
             self._ungroup_all(c)
 
     def _ungroup_all(self, client):
-            messages = self.get_messages_collection(client)
+        messages = self.get_messages_collection(client)
 
-            message_objs = messages.query.fetch_objects(
-                limit=10,
-                filters=wvc.query.Filter.by_ref_count("hasMessageGroup").greater_or_equal(1) & wvc.query.Filter.by_property("ref_count").greater_or_equal(1),
-                sort=wvc.query.Sort.by_property("ts", ascending=True),
-                return_references=wvc.query.QueryReference(link_on="hasMessageGroup"),
-            )
-            deleted_message_groups = self.ungroup(message_objs, client)
-            if len(deleted_message_groups) == 0:
-                return
-            self._ungroup_all(client)
+        message_objs = messages.query.fetch_objects(
+            limit=10,
+            filters=wvc.query.Filter.by_ref_count("hasMessageGroup").greater_or_equal(1) & wvc.query.Filter.by_property(
+                "ref_count").greater_or_equal(1),
+            sort=wvc.query.Sort.by_property("ts", ascending=True),
+            return_references=wvc.query.QueryReference(link_on="hasMessageGroup"),
+        )
+        deleted_message_groups = self.ungroup(message_objs, client)
+        if len(deleted_message_groups) == 0:
+            return
+        self._ungroup_all(client)
 
     def create_message_group_with_messages(self, message_group_object):
         """
@@ -290,17 +293,22 @@ class VectorDBHelper:
                 ts = datetime.strptime(ts, '%Y-%m-%dT%H:%M:%SZ')
             # Format the datetime object to the desired string format
             return ts.strftime('%m-%d %H:%M')
-        if include_dates:
-            # When dates are included, format them to "MM-DD HH:MM"
-            return " \n ".join(
-                f"[{format_ts(props(msg)['ts'])}] {props(msg)['user_id']}: {props(msg)['text']}"
-                for msg in message_group_object
-            )
-        else:
-            # When dates are not included, simply return user_id: text
-            return " \n ".join(
-                f"{props(msg)['user_id']}: {props(msg)['text']}" for msg in message_group_object
-            )
+
+        messages = []
+        for msg in message_group_object:
+            # Construct the base message string with safe .get access
+            base_msg = f"{props(msg).get('role', 'Unknown role')} ({props(msg).get('user_name', 'Unknown user')}): {props(msg).get('text', '')}"
+
+            # Prepend date if needed
+            if include_dates:
+                formatted_date = format_ts(props(msg).get('ts', ''))  # Default to Unix epoch start if 'ts' is missing
+                message = f"[{formatted_date}] {base_msg}"
+            else:
+                message = base_msg
+
+            messages.append(message)
+
+        return " \n ".join(messages)
 
     def get_relevant_message_groups(self, channel_id, query, distance=0.5, limit=3):
         with self.client as c:
@@ -315,7 +323,7 @@ class VectorDBHelper:
             return response
 
     def get_last_x_messages(self, channel_id, limit=5):
-        #TODO fetches also thread messages if these are recent. Not sure what is correct behavior here.
+        # TODO fetches also thread messages if these are recent. Not sure what is correct behavior here.
         with self.client as c:
             messages = self.get_messages_collection(c)
             fetched_messages = messages.query.fetch_objects(
@@ -363,7 +371,6 @@ class VectorDBHelper:
                     # Fetch the entire thread excluding the starter as it's already fetched
                     thread_messages = self.fetch_entire_thread(message_obj.properties['thread_ts'], channel_id)
 
-
                     # Immediately create a MessageGroup for the thread
                     if thread_messages:  # Ensure the thread_messages is not empty
                         logger.info(
@@ -401,7 +408,8 @@ class VectorDBHelper:
                 limit=1,
                 filters=wvc.query.Filter
                         .by_property('thread_ts').equal(thread_starter_ts) & wvc.query.Filter.by_ref_count(
-                    "hasMessageGroup").greater_or_equal(1) & wvc.query.Filter.by_property("ref_count").greater_or_equal(1),
+                    "hasMessageGroup").greater_or_equal(1) & wvc.query.Filter.by_property("ref_count").greater_or_equal(
+                    1),
                 return_references=wvc.query.QueryReference(link_on="hasMessageGroup"),
             )
             group_uuids_to_delete = self.ungroup(thread_starter, c)

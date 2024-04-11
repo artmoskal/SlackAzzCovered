@@ -33,5 +33,16 @@ services:
     image: semitechnologies/transformers-inference:sentence-transformers-paraphrase-multilingual-MiniLM-L12-v2
     environment:
       ENABLE_CUDA: '0'
+  redis:
+    image: "redis:alpine"
+    command: redis-server --requirepass ${REDIS_PASSWORD}
+    volumes:
+    - redis_data:/data
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}  # Make sure to set this in your .env file or as an environment variable
+    ports:
+    - "6379:6379"
+
 volumes:
   weaviate_data:
+  redis_data:

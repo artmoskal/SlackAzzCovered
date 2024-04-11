@@ -1,6 +1,7 @@
 import logging
 from dotenv import load_dotenv
 from slack_bolt import App
+import redis
 
 from llm.llm_caller import LlmCaller
 from slack.message_history_fetcher import MessageHistoryFetcher
@@ -19,6 +20,7 @@ GPT_API_TOKEN = os.environ.get("GPT_API_TOKEN")
 WEAVIATE_URL = os.environ.get("WEAVIATE_URL")
 WEAVIATE_API_KEY = os.environ.get("WEAVIATE_API_KEY")
 TEST_CHANNEL_ID = os.environ.get("TEST_CHANNEL_ID") # e.g., "G03MX3VE7"
+REDIS_PASSWORD = os.environ.get("REDIS_PASSWORD")
 
 client = weaviate.connect_to_local(
     port=8080,
@@ -38,6 +40,8 @@ def prepare_data(vector_db_helper):
     slack_app.fetch_and_process_channel_history(TEST_CHANNEL_ID, days_ago=2)
 
 if __name__ == "__main__":
+    # Setup Redis client with password authentication
+    redis_client = redis.Redis(host='localhost', port=6379, db=0, password=REDIS_PASSWORD)
 
     vector_db_helper = VectorDBHelper(client)
     llm_caller = LlmCaller(api_token=GPT_API_TOKEN)
@@ -45,9 +49,12 @@ if __name__ == "__main__":
     # Initialize SlackApp with dependencies
     slack_bolt_app = App(
         token=os.getenv("SLACK_BOT_TOKEN"),
-        signing_secret=os.getenv("SLACK_SIGNING_SECRET")
+        signing_secret=os.getenv("SLACK_SIGNING_SECRET"),
+        ignoring_self_events_enabled=True,
     )
+
     message_history_fetcher =  MessageHistoryFetcher(app=slack_bolt_app)
+
     slack_app = SlackApp(
         slack_bolt_app,
         slack_app_token=os.getenv("SLACK_APP_TOKEN"),
@@ -55,6 +62,7 @@ if __name__ == "__main__":
         qa_processor=None,
         message_history_fetcher=message_history_fetcher,
         llm_caller=llm_caller,
+        redis_client=redis_client
     )
 
     # prepare_data(vector_db_helper)

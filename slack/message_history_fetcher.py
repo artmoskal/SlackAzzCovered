@@ -1,12 +1,14 @@
 import json
 import logging
 
+from slack.slack_meta_info import SlackMetaInfo
+
 
 class MessageHistoryFetcher:
     def __init__(self, app):
         self.app = app
 
-    def cleanup_messages(self, messages):
+    def cleanup_messages(self, messages, channel_id, slack_meta_info_provider: SlackMetaInfo):
         cleaned_messages = []
 
         for msg in messages:
@@ -17,11 +19,13 @@ class MessageHistoryFetcher:
 
             # Handle different message types and sources
             if 'user' in msg:
-                cleaned_msg['user_id'] = msg['user']
+                user_id = msg['user']
+                cleaned_msg['user_id'] = user_id
+                cleaned_msg['user_name'] = slack_meta_info_provider.get_user_name(user_id)
+                role = slack_meta_info_provider.get_user_role_in_channel(user_id, channel_id) if msg.get(
+                    'bot_id') is None else 'bot'
+                cleaned_msg['role'] = role
                 cleaned_msg['type'] = 'user'
-            elif 'bot_id' in msg:
-                cleaned_msg['user_id'] = msg['bot_id']
-                cleaned_msg['type'] = 'bot'
             else:
                 cleaned_msg['user_id'] = None  # Unknown source
 
@@ -96,5 +100,3 @@ class MessageHistoryFetcher:
         except Exception as e:
             logging.error(f"Error fetching channel history: {e}")
             say("Failed to fetch channel history.")
-
-

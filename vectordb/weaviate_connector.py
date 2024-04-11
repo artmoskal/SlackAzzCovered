@@ -32,19 +32,3 @@ class WeaviateConnector():
             vectorizer_config=wvc.config.Configure.Vectorizer.text2vec_openai(),
             generative_config=wvc.config.Configure.Generative.openai()
         )
-
-    def add_data(self):
-        resp = requests.get(
-            'https://raw.githubusercontent.com/weaviate-tutorials/quickstart/main/data/jeopardy_tiny.json')
-        data = json.loads(resp.text)  # Load data
-
-        question_objs = list()
-        for i, d in enumerate(data):
-            question_objs.append({
-                "answer": d["Answer"],
-                "question": d["Question"],
-                "category": d["Category"],
-            })
-
-        questions = self.client.collections.get(self.CHANNELS_COLLECTION_NAME)
-        questions.data.insert_many(question_objs)

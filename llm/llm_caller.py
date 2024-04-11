@@ -8,7 +8,7 @@ from langchain.llms import OpenAI as LangChainOpenAI
 from langchain.prompts import ChatPromptTemplate, HumanMessagePromptTemplate
 from langchain.output_parsers import OutputFixingParser
 from langchain.schema import OutputParserException
-
+from icecream import ic
 # Step 1: Define your Pydantic model
 class SatisfactionLevels(BaseModel):
     rationale: str = Field(description="AI's phylosophy about what is going on in context of the last message.")
@@ -39,9 +39,12 @@ class LlmCaller:
             messages=[
                 HumanMessagePromptTemplate.from_template("""
 You are a project manager, and a customer wrote into slack: "{{ last_message }}". 
-Note the customer username and check for it in previous conversations, basing on it figure out how frustrated customer is on the scale 1 (extremely frustrated) to 10 (very satisfied).  
+Note the customer username and check for it in previous conversations, basing on it figure out how frustrated 
+customer is on the scale 1 (extremely frustrated) to 10 (very satisfied).  
 Given previous 5 messages:
 {{ last_messages_history }}
+---
+---
 ---
 And potentially relevant previous conversation:
 {% for convo in previous_context %}
@@ -73,6 +76,7 @@ Always give two numbers!
         # TODO Is one system role and content good approach?
         _input = prompt.format_prompt(last_message=last_message, last_messages_history=last_messages_history,
                                       previous_context=previous_context)
+        ic(_input)
         output = self.llm(_input.to_messages())
         logging.debug(f"Response: {output.content}")
         try:
