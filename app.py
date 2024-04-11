@@ -22,6 +22,12 @@ WEAVIATE_API_KEY = os.environ.get("WEAVIATE_API_KEY")
 TEST_CHANNEL_ID = os.environ.get("TEST_CHANNEL_ID") # e.g., "G03MX3VE7"
 REDIS_PASSWORD = os.environ.get("REDIS_PASSWORD")
 
+# Get the environment variable as a string
+admin_user_ids_str = os.getenv('ADMIN_USER_IDS', '')
+
+# Split the string into a list using ',' as the separator
+ADMIN_USER_IDS = [id.strip() for id in admin_user_ids_str.split(',')] if admin_user_ids_str else []
+
 client = weaviate.connect_to_local(
     port=8080,
     grpc_port=50051,
@@ -62,7 +68,8 @@ if __name__ == "__main__":
         qa_processor=None,
         message_history_fetcher=message_history_fetcher,
         llm_caller=llm_caller,
-        redis_client=redis_client
+        redis_client=redis_client,
+        admin_user_ids=ADMIN_USER_IDS
     )
 
     # prepare_data(vector_db_helper)

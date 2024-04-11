@@ -1,10 +1,12 @@
 import json
 import logging
+from functools import partial
 
 
 class SlackMetaInfo:
     TWO_WEEKS = 14 * 24 * 60 * 60  # two weeks in seconds
     INFINITY = 0
+
     def __init__(self, slack_client, redis_client):
         self.redis_client = redis_client
         self.slack_client = slack_client
@@ -37,18 +39,28 @@ class SlackMetaInfo:
             user_id=user_id
         )
 
+    def get_channel_members_all(self, channel_id):
+        # Fetching current channel members
+        result = self.fetch_from_cache(
+            self._get_channel_members_all_key(channel_id),
+            partial(self._fetch_channel_members, skip_members_having_role=False))
+        if result is not None:
+            return json.loads(result)
+        else:
+            return result
+
     def get_channel_members_no_role(self, channel_id):
         # Fetching current channel members
         result = self.fetch_from_cache(
-            self._get_channel_members_key(channel_id),
-            self._fetch_channel_members_no_role,
+            self._get_channel_members_no_role_key(channel_id),
+            self._fetch_channel_members,
             channel_id=channel_id)
         if result is not None:
             return json.loads(result)
         else:
             return result
 
-    def _fetch_channel_members_no_role(self, channel_id):
+    def _fetch_channel_members(self, channel_id, skip_members_having_role=True):
         result = self.slack_client.conversations_members(channel=channel_id)
         members = result['members'] if 'members' in result else []
         users = {}
@@ -61,14 +73,13 @@ class SlackMetaInfo:
 
             user_name = self.get_user_name(user_id)
             existing_role = self.get_user_role_in_channel(user_id, channel_id)
-            if existing_role:
+            if existing_role and skip_members_having_role:
                 skip_str = f"Found existing role ({existing_role} for {user_id} ({user_name}), skipping."
                 logging.debug(skip_str)
                 continue
             # TODO Two queries should be replaced with one. First for is_bot and second for user name
             users[user_id] = user_name
         return users
-
 
     def get_channel_name(self, channel_id):
         return self.fetch_from_cache(
@@ -110,10 +121,13 @@ class SlackMetaInfo:
     # TODO Need invalidation mechanism
     def set_user_role_in_channel(self, user_id, channel_id, role_name):
         self.redis_client.set(self._get_user_role_key(user_id, channel_id), role_name)
-        self.redis_client.delete(self._get_channel_members_key(channel_id))
+        self.redis_client.delete(self._get_channel_members_no_role_key(channel_id))
 
     def _get_user_role_key(self, user_id, channel_id):
         return f"user_id:{user_id}:channel_id:{channel_id}"
 
-    def _get_channel_members_key(self, channel_id):
-        return f"channel_members:{channel_id}"
+    def _get_channel_members_all_key(self, channel_id):
+        return f"channel_members_all:{channel_id}"
+
+    def _get_channel_members_no_role_key(self, channel_id):
+        return f"channel_members_no_role:{channel_id}"

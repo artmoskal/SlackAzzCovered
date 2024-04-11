@@ -13,7 +13,7 @@ from vectordb.vector_db_helper import VectorDBHelper
 
 class SlackApp:
     def __init__(self, slack_bolt_app, slack_app_token, vector_db_helper: VectorDBHelper, qa_processor,
-                 message_history_fetcher, llm_caller: LlmCaller, redis_client):
+                 message_history_fetcher, llm_caller: LlmCaller, redis_client, admin_user_ids):
         self.app = slack_bolt_app
         self.vector_db_helper = vector_db_helper
         self.llm_caller = llm_caller
@@ -21,6 +21,7 @@ class SlackApp:
         self.slack_app_token = slack_app_token
         self.message_history_fetcher = message_history_fetcher
         self.slack_meta_info_provider = SlackMetaInfo(self.app.client, redis_client=redis_client)
+        self.admin_user_ids = admin_user_ids
 
         self.role_assignment = RoleAssignment(self.app, slack_meta_info_provider=self.slack_meta_info_provider)
         self.role_assignment.register_interaction_handlers()
@@ -116,7 +117,17 @@ class SlackApp:
             user_id = event.get('user')
             text = event.get('text')
             user_name = self.slack_meta_info_provider.get_user_name(user_id)
+            user_role = self.slack_meta_info_provider.get_user_role_in_channel(user_id, channel_id=channel_id)
             channel_name = self.slack_meta_info_provider.get_channel_name(channel_id)
+            if not user_role and not self.slack_meta_info_provider.is_bot(user_id):
+                logging.warning(f"User {user_id} has no role assigned in channel {channel_id} .")
+                members_without_role = self.slack_meta_info_provider.get_channel_members_no_role(channel_id)
+                if members_without_role:
+                    for admin_user_id in self.admin_user_ids:
+                        self.app.client.chat_postMessage(channel=admin_user_id, text=f"For some reason I can't find role for user {user_name} in channel {channel_name}, please solve this!")
+                        self.role_assignment.send_role_assignment_message(channel_id, members_without_role, admin_user_id)
+                    return
+
             clean_messages = self.clean_messages([event], channel_id, self.slack_meta_info_provider)
             message_txt = self.vector_db_helper.msg_array_to_text(clean_messages, is_db_object=False)
             last_messages_history = self.vector_db_helper.get_last_x_messages(channel_id, 5)
