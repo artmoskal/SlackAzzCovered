@@ -25,3 +25,4 @@ dependencies:
     - weaviate-client~=4.5.1
     - python-dotenv~=1.0.0
     - langchain-openai~=0.0
+    - dependency-injector~=4.41
