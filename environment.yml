@@ -21,6 +21,7 @@ dependencies:
   - pytest=8.1.*
   - transitions=0.9.*
   - redis=3.5.*
+  - celery=5.3.*
   - pip:
     - weaviate-client~=4.5.1
     - python-dotenv~=1.0.0

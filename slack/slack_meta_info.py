@@ -7,9 +7,9 @@ class SlackMetaInfo:
     TWO_WEEKS = 14 * 24 * 60 * 60  # two weeks in seconds
     INFINITY = 0
 
-    def __init__(self, slack_client, redis_client):
+    def __init__(self, slack_app, redis_client):
         self.redis_client = redis_client
-        self.slack_client = slack_client
+        self.slack_app = slack_app
 
     def fetch_from_cache(self, key, fetch_function, ex=TWO_WEEKS, *args, **kwargs):
         value = self.redis_client.get(key)
@@ -61,7 +61,7 @@ class SlackMetaInfo:
             return result
 
     def _fetch_channel_members(self, channel_id, skip_members_having_role=True):
-        result = self.slack_client.conversations_members(channel=channel_id)
+        result = self.slack_app.client.conversations_members(channel=channel_id)
         members = result['members'] if 'members' in result else []
         users = {}
         for user_id in members:
@@ -96,20 +96,23 @@ class SlackMetaInfo:
             user_id=user_id,
         ))
 
+    def get_slack_client(self):
+        return self.slack_app.client
+
     def _fetch_user_name(self, user_id):
-        result = self.slack_client.users_info(user=user_id)
+        result = self.get_slack_client().users_info(user=user_id)
         if result and result['user']:
             return result['user']['name']
         return None
 
     def _fetch_channel_name(self, channel_id):
-        result = self.slack_client.conversations_info(channel=channel_id)
+        result = self.get_slack_client().conversations_info(channel=channel_id)
         if result and result['channel']:
             return result['channel']['name']
         return None
 
     def _fetch_is_bot(self, user_id):
-        result = self.slack_client.users_info(user=user_id)
+        result = self.get_slack_client().users_info(user=user_id)
         if result and result['user']:
             return result['user']['is_bot']
         return None
