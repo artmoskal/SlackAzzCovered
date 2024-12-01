@@ -1,0 +1,46 @@
+{
+  "name": "n8n-nodes-llm-template",
+  "version": "0.1.0",
+  "type": "commonjs",
+  "description": "N8n node for LLM template processing",
+  "keywords": [
+    "n8n-community-node-package",
+    "n8n-node-package"
+  ],
+  "license": "MIT",
+  "homepage": "",
+  "author": {
+    "name": "Your Name",
+    "email": "your@email.com"
+  },
+  "main": "index.js",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "format": "prettier nodes --write",
+    "lint": "eslint nodes package.json",
+    "lintfix": "eslint nodes package.json --fix",
+    "prepublishOnly": "npm run build && npm run lint -c .eslintrc.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "n8n": {
+    "n8nNodesApiVersion": 1,
+    "credentials": [],
+    "nodes": [
+      "dist/nodes/LLMTemplate/LLMTemplate.node.js"
+    ]
+  },
+  "dependencies": {
+    "n8n-workflow": "^1.48.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.2",
+    "@typescript-eslint/parser": "^5.14.0",
+    "eslint": "^8.11.0",
+    "eslint-plugin-n8n-nodes-base": "^1.0.0",
+    "prettier": "^2.5.1"
+  }
+}
