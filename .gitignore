@@ -243,3 +243,6 @@ cython_debug/
 
 /vector_db_tester.ipynb
 /messages_*.json
+/infra/n8n/custom-nodes/n8n-nodes-llm-template/dist/
+/infra/n8n/custom-nodes/n8n-nodes-llm-template/node_modules/
+/infra/n8n/custom-nodes/n8n-nodes-llm-template/package-lock.json

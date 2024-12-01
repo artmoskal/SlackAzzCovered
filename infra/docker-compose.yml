@@ -1,0 +1,243 @@
+---
+version: '3.4'
+
+
+x-n8n: &service-n8n
+  image: n8nio/n8n:latest
+  networks:
+    - app_network
+    # Add host network access
+  extra_hosts:
+    - "host.docker.internal:host-gateway"
+  environment:
+    - DB_TYPE=postgresdb
+    - DB_POSTGRESDB_HOST=postgres
+    - DB_POSTGRESDB_PORT=5432
+    - DB_POSTGRESDB_USER=${POSTGRES_USER}
+    - DB_POSTGRESDB_PASSWORD=${POSTGRES_PASSWORD}
+    - DB_POSTGRESDB_DATABASE=${POSTGRES_DB}
+    - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
+    - N8N_HOST=${N8N_HOST:-localhost}
+    - N8N_PORT=5678
+    - N8N_PROTOCOL=${N8N_PROTOCOL:-http}
+    - N8N_USER_MANAGEMENT_DISABLED=true
+    - N8N_API_KEY=${N8N_API_KEY}
+    - WEBHOOK_URL=${N8N_WEBHOOK_URL:-http://localhost:5678/}
+      # Redis configuration
+    - N8N_CACHE_ENABLED=true
+    - N8N_CACHE_REDIS_HOST=redis
+    - N8N_CACHE_REDIS_PORT=6379
+    - N8N_CACHE_REDIS_PASSWORD=${REDIS_PASSWORD}
+
+    - API_HOST_URL=${APP_API_HOST_URL}
+
+    - N8N_CUSTOM_EXTENSIONS=/home/node/.n8n/custom/n8n-nodes-llm-template
+    - N8N_WATCH_CUSTOM_EXTENSIONS=true
+  volumes:
+    - ./n8n/custom-nodes:/home/node/.n8n/custom
+    - n8n_data:/home/node/.n8n
+    - ./n8n/backup:/backup
+  depends_on:
+    postgres:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+
+
+services:
+  postgres:
+      image: postgres:16-alpine
+      networks:
+        - app_network
+      restart: unless-stopped
+      environment:
+        - POSTGRES_USER
+        - POSTGRES_PASSWORD
+        - POSTGRES_DB
+      ports:
+        - "5432:5432"  # Add this line to expose postgres port to host
+      volumes:
+        - postgres_data:/var/lib/postgresql/data
+      healthcheck:
+        test: ['CMD-SHELL', 'pg_isready -h localhost -U ${POSTGRES_USER} -d ${POSTGRES_DB}']
+        interval: 5s
+        timeout: 5s
+        retries: 10
+
+  api-key-setup:
+      image: postgres:16-alpine
+      networks:
+        - app_network
+      environment:
+        - POSTGRES_USER
+        - POSTGRES_PASSWORD
+        - POSTGRES_DB
+        - N8N_API_KEY
+      command: >
+        sh -c "
+          until PGPASSWORD=$$POSTGRES_PASSWORD psql -h postgres -U $$POSTGRES_USER -d $$POSTGRES_DB -c 'SELECT 1' > /dev/null 2>&1; do
+            echo 'Waiting for PostgreSQL...'
+            sleep 2
+          done
+          
+          echo 'Getting owner user ID...'
+          OWNER_ID=$$(PGPASSWORD=$$POSTGRES_PASSWORD psql -h postgres -U $$POSTGRES_USER -d $$POSTGRES_DB -tA -c \"SELECT id FROM public.\\\"user\\\" WHERE role = 'global:owner' LIMIT 1\")
+          
+          echo 'Checking if API key exists...'
+          if ! PGPASSWORD=$$POSTGRES_PASSWORD psql -h postgres -U $$POSTGRES_USER -d $$POSTGRES_DB -tc \"SELECT COUNT(*) FROM public.\\\"user_api_keys\\\"\" | grep -q 1; then
+            echo 'Inserting API key...'
+            PGPASSWORD=$$POSTGRES_PASSWORD psql -h postgres -U $$POSTGRES_USER -d $$POSTGRES_DB -c \"
+              INSERT INTO public.\\\"user_api_keys\\\" (id, \\\"userId\\\", label, \\\"apiKey\\\", \\\"createdAt\\\", \\\"updatedAt\\\")
+              VALUES (
+                gen_random_uuid()::character varying,
+                '$$OWNER_ID',
+                'Programmatic Access Key',
+                '$$N8N_API_KEY',
+                CURRENT_TIMESTAMP,
+                CURRENT_TIMESTAMP
+              );
+            \"
+          fi"
+      depends_on:
+        n8n:
+          condition: service_healthy
+
+  redis:
+    image: "redis:alpine"
+    command: redis-server --requirepass ${REDIS_PASSWORD}
+    volumes:
+    - redis_data:/data
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    ports:
+      - "6379:6379"
+    networks:
+      - app_network
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  n8n-import:
+    <<: *service-n8n
+    container_name: n8n-import
+    entrypoint: /bin/sh
+    command:
+      - "-c"
+      - "n8n import:credentials --separate --input=/backup/credentials && n8n import:workflow --separate --input=/backup/workflows"
+
+  n8n:
+    <<: *service-n8n
+    container_name: n8n
+    restart: unless-stopped
+    ports:
+      - "5678:5678"
+    healthcheck:
+      test: ["CMD-SHELL", "result=$(wget -q -O - http://localhost:5678/healthz > /dev/null 2>&1); code=$?; echo \"Exit code: $code\"; exit $code"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    depends_on:
+      n8n-import:
+        condition: service_completed_successfully
+
+  weaviate:
+    command:
+    - --host
+    - 0.0.0.0
+    - --port
+    - '8080'
+    - --scheme
+    - http
+    image: cr.weaviate.io/semitechnologies/weaviate:latest
+    ports:
+    - 8080:8080
+    - 50051:50051
+    volumes:
+    - weaviate_data:/var/lib/weaviate
+    restart: on-failure
+    environment:
+      QUERY_DEFAULTS_LIMIT: 25
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: 'true'
+      PERSISTENCE_DATA_PATH: '/var/lib/weaviate'
+      DEFAULT_VECTORIZER_MODULE: text2vec-transformers
+      ENABLE_MODULES: 'text2vec-transformers,text2vec-cohere,text2vec-huggingface,text2vec-palm,text2vec-openai,generative-openai,generative-cohere,generative-palm,ref2vec-centroid,reranker-cohere,qna-openai'
+      CLUSTER_HOSTNAME: 'node1'
+      AUTHENTICATION_APIKEY_ENABLED: 'true'
+      # Set your API keys here
+      AUTHENTICATION_APIKEY_ALLOWED_KEYS: ${AUTHENTICATION_APIKEY_ALLOWED_KEYS}
+      # Set user identities corresponding to the API keys
+      AUTHENTICATION_APIKEY_USERS: 'vectorDbUser'
+      TRANSFORMERS_INFERENCE_API: http://t2v-transformers:8080
+      # Add disk threshold configuration
+      DISK_USE_READONLY_PERCENTAGE: "95" # Increase disk threshold to 95%
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--spider", "http://localhost:8080/v1/.well-known/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s  # Give it more time to initialize
+    networks:
+      - app_network
+    depends_on:
+      t2v-transformers:
+        condition: service_healthy
+
+  t2v-init:
+    image: semitechnologies/transformers-inference:sentence-transformers-paraphrase-multilingual-MiniLM-L12-v2
+    networks:
+      - app_network
+    user: root
+    volumes:
+      - t2v-tools:/tools
+    entrypoint: /bin/sh
+    command:
+      - "-c"
+      - |
+        mkdir -p /tools && cd /tools && \
+        if [ ! -f bin/busybox ]; then
+          # Only download and extract if busybox doesn't exist
+          apt-get update && \
+          apt-get download busybox && \
+          dpkg -x busybox*.deb .
+        fi && \
+        # Just recreate the symlink
+        rm -f wget && \
+        ln -s bin/busybox wget && \
+        echo "wget symlink created"
+
+  # Main service
+  t2v-transformers:
+    image: semitechnologies/transformers-inference:sentence-transformers-paraphrase-multilingual-MiniLM-L12-v2
+    environment:
+      ENABLE_CUDA: '0'
+      PATH: "/tools/usr/bin:${PATH}"
+      LD_LIBRARY_PATH: "/tools/usr/lib/aarch64-linux-gnu:${LD_LIBRARY_PATH}"
+    networks:
+      - app_network
+    user: root
+    volumes:
+      - t2v-tools:/tools
+    healthcheck:
+      test: ["CMD-SHELL", "/tools/wget -q -O - http://localhost:8080/.well-known/ready > /dev/null 2>&1 && echo 'Health check passed' || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    depends_on:
+      t2v-init:
+        condition: service_completed_successfully
+
+volumes:
+  weaviate_data:
+  redis_data:
+  n8n_data:
+  postgres_data:
+  t2v-tools:
+
+networks:
+  app_network:
+    driver: bridge
+    # This allows connecting to other Docker networks
+    attachable: true

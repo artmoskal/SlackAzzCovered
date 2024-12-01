@@ -8,7 +8,7 @@ class MessageHistoryFetcher:
     def __init__(self, app):
         self.app = app
 
-    def cleanup_messages(self, messages, channel_id, slack_meta_info_provider: SlackMetaInfo):
+    async def cleanup_messages(self, messages, channel_id, slack_meta_info_provider: SlackMetaInfo):
         cleaned_messages = []
 
         for msg in messages:
@@ -21,7 +21,7 @@ class MessageHistoryFetcher:
             if 'user' in msg:
                 user_id = msg['user']
                 cleaned_msg['user_id'] = user_id
-                cleaned_msg['user_name'] = slack_meta_info_provider.get_user_name(user_id)
+                cleaned_msg['user_name'] = await slack_meta_info_provider.get_user_name(user_id)
                 role = slack_meta_info_provider.get_user_role_in_channel(user_id, channel_id) if msg.get(
                     'bot_id') is None else 'bot'
                 cleaned_msg['role'] = role
@@ -53,7 +53,7 @@ class MessageHistoryFetcher:
             json.dump(messages, f)
         logging.info(f"Saved {len(messages)} messages to {file_path}")
 
-    def fetch_channel_history(self, channel_id, say, start_timestamp, end_timestamp, max_messages_to_fetch):
+    async def fetch_channel_history(self, channel_id, say, start_timestamp, end_timestamp, max_messages_to_fetch):
         try:
             limit = 200
 
@@ -63,7 +63,7 @@ class MessageHistoryFetcher:
             total_fetched = 0
 
             while has_more and total_fetched < max_messages_to_fetch:
-                result = self.app.client.conversations_history(
+                result = await self.app.client.conversations_history(
                     channel=channel_id,
                     latest=end_timestamp,
                     oldest=start_timestamp,
@@ -84,7 +84,7 @@ class MessageHistoryFetcher:
             # Fetch threads for messages that are the beginning of a thread
             for message in messages:
                 if message.get('thread_ts') and message['ts'] == message['thread_ts']:
-                    thread_result = self.app.client.conversations_replies(
+                    thread_result = await self.app.client.conversations_replies(
                         channel=channel_id,
                         ts=message['thread_ts']
                     )

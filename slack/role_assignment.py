@@ -11,9 +11,11 @@ class RoleAssignment:
         self.slack_meta_info_provider = slack_meta_info_provider
         self.app = app
 
-    def send_role_assignment_message(self, channel_id, users, inviter_id):
+    async def send_role_assignment_message(self, channel_id, users, inviter_id, channel_name):
         blocks = []
-        for user_id, user_name in users.items():
+        for user in users:
+            user_id = user.id
+            user_name = user.name
             user_section = {
                 "type": "section",
                 "text": {
@@ -40,24 +42,24 @@ class RoleAssignment:
             blocks.extend([user_section, buttons_section])
 
         # Send the message
-        self.app.client.chat_postMessage(channel=inviter_id, blocks=blocks, text="Role Assignment")
+        await self.app.client.chat_postMessage(channel=inviter_id, blocks=blocks, text=f"Role Assignment for {channel_name}")
 
-    def register_interaction_handlers(self):
+    async def register_interaction_handlers(self):
         @self.app.event("member_joined_channel")
-        def ask_for_roles_and_check_existing_members(ack, say, client, event):
-            ack()
+        async def ask_for_roles_and_check_existing_members(ack, say, client, event):
+            await ack()
             # TODO probably should not send "questionary" to customers who invited someone
             inviter_id = event['inviter']  # Assuming 'user' is who added the bot
             channel_id = event['channel']
 
-            users = self.slack_meta_info_provider.get_channel_members_no_role(channel_id)
+            users = await self.slack_meta_info_provider.get_channel_members_no_role(channel_id)
 
-            self.send_role_assignment_message(channel_id, users, inviter_id)
+            await self.send_role_assignment_message(channel_id, users, inviter_id, self.slack_meta_info_provider.get_channel_name(channel_id))
 
         @self.app.action(re.compile("assign_role_.*"))  # Use regex to match any action_id starting with "assign_role_"
-        def handle_role_assignment(ack, body, say):
-            ack()
+        async def handle_role_assignment(ack, body, say, client, event):
+            await ack()
             action_value = body['actions'][0]['value']
             user_id, role, channel_id = action_value.split('_')
             self.slack_meta_info_provider.set_user_role_in_channel(user_id, channel_id, role)
-            say(f"Assigned <@{user_id}> as {role}.")
+            await say(f"Assigned <@{user_id}> as {role}.")
