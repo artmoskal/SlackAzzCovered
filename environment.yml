@@ -31,6 +31,7 @@ dependencies:
   - asgiref
   - environs
   - pip:
+    - langchain-ollama
     - weaviate-client~=4.9
     - python-dotenv~=1.0.0
     - dependency-injector~=4.41

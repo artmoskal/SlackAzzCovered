@@ -11,19 +11,20 @@ class N8nResponse(BaseModel):
     error: Optional[str] = None
 
 class N8nProvider:
-    def __init__(self, base_url: str, api_key: str):
+    def __init__(self, base_url: str, api_key: str, test_webhooks: bool = False):
         self.base_url = base_url.rstrip('/')
         self.headers = {
             'X-N8N-API-KEY': api_key,
             'Content-Type': 'application/json'
         }
+        self.test_webhooks = test_webhooks
         self.logger = logging.getLogger(__name__)
         self.logger.setLevel(logging.DEBUG)
 
     async def trigger_workflow_webhook(self, webhook_path: str, workflow_id: str, payload: dict) -> N8nResponse:
         """Low-level webhook trigger using workflow ID"""
         try:
-            url = f"{self.base_url}/webhook/{workflow_id}/webhook/{webhook_path}"
+            url = f"{self.base_url}/webhook{'' if not self.test_webhooks else '-test'}/{webhook_path}"
             self.logger.debug(f"Triggering webhook at URL: {url}")
             response = requests.post(url, json=payload, headers=self.headers)
             response.raise_for_status()

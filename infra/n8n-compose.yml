@@ -1,0 +1,145 @@
+
+# n8n-compose.yaml (separate file for n8n services)
+version: '3.4'
+
+x-n8n: &n8n-service
+  image: n8nio/n8n:latest
+  networks:
+    - app_network
+  environment:
+    - N8N_LOG_LEVEL=debug
+    - VERBOSE_PERMISSIONS=true
+    - N8N_LOG_OUTPUT=console
+    - DB_TYPE=postgresdb
+    - DB_POSTGRESDB_HOST=postgres
+    - DB_POSTGRESDB_PORT=5432
+    - DB_POSTGRESDB_USER=${POSTGRES_USER}
+    - DB_POSTGRESDB_PASSWORD=${POSTGRES_PASSWORD}
+    - DB_POSTGRESDB_DATABASE=${POSTGRES_DB}
+    - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
+    - N8N_HOST=${N8N_HOST:-localhost}
+    - N8N_PORT=5678
+    - N8N_PROTOCOL=${N8N_PROTOCOL:-http}
+    - N8N_USER_MANAGEMENT_DISABLED=true
+    - N8N_API_KEY=${N8N_API_KEY}
+    - WEBHOOK_URL=${N8N_WEBHOOK_URL:-http://localhost:5678/}
+    - N8N_CACHE_ENABLED=true
+    - N8N_CACHE_REDIS_HOST=redis
+    - N8N_CACHE_REDIS_PORT=6379
+    - N8N_CACHE_REDIS_PASSWORD=${REDIS_PASSWORD}
+    - API_HOST_URL=${APP_API_HOST_URL}
+    - N8N_CUSTOM_EXTENSIONS=/home/node/.n8n/custom
+    #- /n8n-nodes-graylog;/home/node/.n8n/custom/n8n-nodes-llm-template
+    - N8N_WATCH_CUSTOM_EXTENSIONS=true
+
+#    - NODE_SOURCE_MAP_SUPPORT=true
+#    - NODE_OPTIONS="--inspect-brk=0.0.0.0:9229 --enable-source-maps"
+  volumes:
+    - ./n8n/custom-nodes:/home/node/.n8n/custom
+    - n8n_data_azz:/home/node/.n8n
+    - ./n8n/backup:/backup
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    networks:
+      - app_network
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER
+      - POSTGRES_PASSWORD
+      - POSTGRES_DB
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -h localhost -U ${POSTGRES_USER} -d ${POSTGRES_DB}']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: "redis:alpine"
+    command: redis-server --requirepass ${REDIS_PASSWORD}
+    volumes:
+      - redis_data:/data
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    ports:
+      - "6379:6379"
+    networks:
+      - app_network
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  n8n:
+    <<: *n8n-service
+    container_name: n8n
+    ports:
+      - "5678:5678"
+      - "9229:9229"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "result=$$(wget -q -O - http://localhost:5678/healthz > /dev/null 2>&1); code=$$?; echo \"Exit code: $$code\"; exit $$code"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    depends_on:
+      n8n-import:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+
+  n8n-import:
+    <<: *n8n-service
+    entrypoint: /bin/sh
+    command:
+      - "-c"
+      - "n8n import:credentials --separate --input=/backup/credentials && n8n import:workflow --separate --input=/backup/workflows"
+
+  api-key-setup:
+    image: postgres:16-alpine
+    networks:
+      - app_network
+    environment:
+      - POSTGRES_USER
+      - POSTGRES_PASSWORD
+      - POSTGRES_DB
+      - N8N_API_KEY
+    command: >
+      sh -c "
+        until PGPASSWORD=$$POSTGRES_PASSWORD psql -h postgres -U $$POSTGRES_USER -d $$POSTGRES_DB -c 'SELECT 1' > /dev/null 2>&1; do
+          echo 'Waiting for PostgreSQL...'
+          sleep 2
+        done
+        
+        OWNER_ID=$$(PGPASSWORD=$$POSTGRES_PASSWORD psql -h postgres -U $$POSTGRES_USER -d $$POSTGRES_DB -tA -c \"SELECT id FROM public.\\\"user\\\" WHERE role = 'global:owner' LIMIT 1\")
+        
+        if ! PGPASSWORD=$$POSTGRES_PASSWORD psql -h postgres -U $$POSTGRES_USER -d $$POSTGRES_DB -tc \"SELECT COUNT(*) FROM public.\\\"user_api_keys\\\"\" | grep -q 1; then
+          PGPASSWORD=$$POSTGRES_PASSWORD psql -h postgres -U $$POSTGRES_USER -d $$POSTGRES_DB -c \"
+            INSERT INTO public.\\\"user_api_keys\\\" (id, \\\"userId\\\", label, \\\"apiKey\\\", \\\"createdAt\\\", \\\"updatedAt\\\")
+            VALUES (
+              gen_random_uuid()::character varying,
+              '$$OWNER_ID',
+              'Programmatic Access Key',
+              '$$N8N_API_KEY',
+              CURRENT_TIMESTAMP,
+              CURRENT_TIMESTAMP
+            );
+          \"
+        fi"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      n8n:
+        condition: service_healthy
+
+volumes:
+  redis_data:
+  n8n_data_azz:
+  postgres_data:

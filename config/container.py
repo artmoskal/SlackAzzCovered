@@ -20,7 +20,7 @@ from vectordb.vector_db_helper import VectorDBHelper
 from workflows.channel_state_manager import ChannelStateManager
 from workflows.slack_state_manager import SlackStateManager
 from weaviate.auth import AuthApiKey
-
+from langchain_ollama import ChatOllama
 
 class Container(containers.DeclarativeContainer):
     config_manager = ConfigManager()
@@ -96,13 +96,19 @@ class Container(containers.DeclarativeContainer):
 
     template_env = providers.Singleton(Environment, loader=BaseLoader())
 
+    # stupid_model = providers.Singleton(
+    #     ChatOpenAI,
+    #     model="gpt-3.5-turbo",
+    #     openai_api_key=config.gpt_api_token,
+    #     max_tokens=600
+    # )
     stupid_model = providers.Singleton(
-        ChatOpenAI,
-        model="gpt-3.5-turbo",
-        openai_api_key=config.gpt_api_token,
+        ChatOllama,
+        model="llama3.2",
+        temperature=0,
+        base_url=config.ollama_host,
         max_tokens=600
     )
-
     smart_model = providers.Singleton(
         ChatOpenAI,
         model="gpt-4",
@@ -113,7 +119,7 @@ class Container(containers.DeclarativeContainer):
     llm_caller = providers.Singleton(
         LLMCaller,
         stupid_model=stupid_model,
-        smart_model=smart_model,
+        smart_model=stupid_model,
         template_env=template_env,
     )
 
@@ -141,7 +147,8 @@ class Container(containers.DeclarativeContainer):
     n8n_provider = providers.Singleton(
         N8nProvider,
         base_url=config.n8n_base_url,
-        api_key=config.n8n_api_key
+        api_key=config.n8n_api_key,
+        test_webhooks=config.n8n_test_webhooks,
     )
 
     n8n_manager = providers.Singleton(

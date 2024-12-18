@@ -33,7 +33,7 @@
     ]
   },
   "dependencies": {
-    "n8n-workflow": "^1.48.0"
+    "n8n-workflow": "1.48.0"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

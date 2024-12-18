@@ -2,7 +2,7 @@ import asyncio
 import json
 from functools import partial
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, ValidationError, create_model
 from typing import Any, Optional, Dict, TypeVar, Type
 from llm.context.input import SatisfactionLevelContext
@@ -146,26 +146,24 @@ async def get_models():
 
 
 @router.post("/process-template")
-async def process_template(request: TemplateRequest):
+async def process_template(request: Request, template_request: TemplateRequest):
+    container = request.state.container
     try:
         # Get input model class
-        input_model = find_pydantic_class(request.input_model)
+        input_model = find_pydantic_class(template_request.input_model)
 
         # Validate input variables using the existing model
-        input_data = input_model(**request.variables)
+        input_data = input_model(**template_request.variables)
         # Get output model
-        output_model = find_pydantic_class(request.output_model)  # Changed from output_class
+        output_model = find_pydantic_class(template_request.output_model)  # Changed from output_class
 
-        # Process with LLM
-        from config.container import Container
-        container = Container()
         state_manager = container.state_manager()
 
         result = state_manager.llm_caller._get_gpt_response(
             lambda parser: state_manager.llm_caller._get_prompt_template(
-                request.template,
+                template_request.template,
                 parser,
-                list(request.variables.keys())
+                list(template_request.variables.keys())
             ),
             input_data,
             output_model
@@ -173,7 +171,7 @@ async def process_template(request: TemplateRequest):
 
         return {
             "result": result.model_dump(),
-            "input": request.variables
+            "input": template_request.variables
         }
 
     except ValidationError as e:

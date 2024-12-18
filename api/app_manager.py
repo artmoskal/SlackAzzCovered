@@ -1,16 +1,18 @@
 # api/app_manager.py
 import asyncio
+import logging
 import multiprocessing
+import platform
 import signal
 import tempfile
-import platform
 from contextlib import asynccontextmanager
 from typing import Any, Optional, Dict
-import logging
+
 import gunicorn.app.base
 from fastapi import FastAPI
-from slack_bolt.adapter.socket_mode.async_handler import AsyncSocketModeHandler
 from gunicorn.config import Config
+from slack_bolt.adapter.socket_mode.async_handler import AsyncSocketModeHandler
+
 
 class StandaloneApplication(gunicorn.app.base.BaseApplication):
     def __init__(self, app: Any, options: Optional[Dict[str, Any]] = None):
@@ -79,15 +81,22 @@ class AppManager:
         self.config = config
         self.logger = logging.getLogger(__name__)
         self._slack_process = None
+        self.container = None
 
         @asynccontextmanager
         async def lifespan(app: FastAPI):
             try:
                 self.logger.info("Starting services...")
+                # Initialize container
+                from config.container import Container
+                self.container = Container()
+                self.container.config.override(self.config)
+
+                # Setup n8n workflows
                 await self.n8n_manager.setup_workflows(
                     recreate=self.config.get('recreate_workflows', False)
                 )
-                yield
+                yield {'container': self.container}
             except Exception as e:
                 self.logger.error(f"Error during startup: {e}")
                 raise
@@ -134,15 +143,17 @@ class AppManager:
             try:
                 StandaloneApplication(self.fastapi_app, options).run()
             finally:
-                # Cleanup Slack process on API server shutdown
-                if self._slack_process and self._slack_process.is_alive():
-                    self._slack_process.terminate()
-                    self._slack_process.join(timeout=5)
-                    if self._slack_process.is_alive():
-                        self._slack_process.kill()
+                self.kill_slack()
 
         except Exception as e:
             self.logger.error(f"Server error: {e}")
-            if self._slack_process and self._slack_process.is_alive():
-                self._slack_process.terminate()
+            self.kill_slack()
             raise
+
+    def kill_slack(self):
+        # Cleanup Slack process on API server shutdown
+        if self._slack_process and self._slack_process.is_alive():
+            self._slack_process.terminate()
+            self._slack_process.join(timeout=5)
+            if self._slack_process.is_alive():
+                self._slack_process.kill()

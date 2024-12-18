@@ -74,4 +74,7 @@ class ConfigManager:
             "n8n_base_url": f"{protocol}://{host}:{port}",
             "n8n_encryption_key": self.env.str("N8N_ENCRYPTION_KEY", None),
             "n8n_api_key": self.env.str("N8N_API_KEY", None),
+            "n8n_test_webhooks": self.env.str("N8N_TEST_WEBHOOKS", False),
+
+            "ollama_host": self.env.str("OLLAMA_HOST_LOCAL", None),
         }

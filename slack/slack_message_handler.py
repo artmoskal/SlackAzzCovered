@@ -135,6 +135,7 @@ class SlackMessageHandler:
                 "message": {
                     "text": mhd.message_txt,
                     "history": mhd.last_messages_history,
+                    "previous_context": mhd.previous_context_merged,
                     "channel_id": c_id,
                     "user": {
                         "id": ed.user.id,
@@ -159,4 +160,4 @@ class SlackMessageHandler:
                 await self.slack_utilities.vector_db_helper.delete_message_group_by_thread_ts(mes)
 
             await self.slack_utilities.group_all_messages_in_channel(c_id)
-            logging.info(f"New message from {ed.user.name} in {ed.channel_name}: {ed.text}")
+            logging.info(f"New message from {ed.user.name} in {ed.channel_name}: {ed.text} processed")

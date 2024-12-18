@@ -100,7 +100,7 @@ Output is one relevant question number and probability it is answered.
 
     def construct_evaluate_answer_quality_prompt(self, parser: PydanticOutputParser) -> ChatPromptTemplate:
             template = """
-    You are a senior project manager, and a manager wrote into slack: "{{ last_message }}". 
+    You are PMO, and a manager wrote into slack: "{{ last_message }}". 
     Context of previous 5 messages:
     {{ last_messages_history }}
     ---
@@ -121,6 +121,7 @@ Output is one relevant question number and probability it is answered.
     Last messages are most important to build proper context.
 
     {{format_instructions}}
+    Do not include any schema information, properties wrapper, or additional fields in your response.
             """
             input_variables = ["last_message", "last_messages_history", "previous_context", "question_text"]
 
